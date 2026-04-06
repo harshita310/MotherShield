@@ -65,18 +65,20 @@ export default function Results() {
 
   useEffect(() => {
     if (!result || savedRef.current) return
-    const history = JSON.parse(localStorage.getItem('motherShieldAssessments') || '[]')
-    history.unshift({
+    const existing = JSON.parse(localStorage.getItem('motherShieldAssessments') || '[]')
+    const newAssessment = {
       id: Date.now(),
       date: new Date().toISOString(),
       riskLevel,
       vitals,
-      explanation: riskResult?.explanation ?? '',
+      riskResult: riskResult,
+      timestamp: Date.now(),
+      patientAge: vitals?.patientAge,
       facilities: result?.facilities ?? []
-    })
-    localStorage.setItem('motherShieldAssessments', JSON.stringify(history.slice(0, 100)))
+    }
+    localStorage.setItem('motherShieldAssessments', JSON.stringify([newAssessment, ...existing]))
     savedRef.current = true
-  }, [result, riskLevel, vitals, riskResult?.explanation])
+  }, [result, riskLevel, vitals, riskResult])
 
   function handleGetDirections(facility) {
     const url = `https://www.google.com/maps/dir/?api=1&destination=${facility.lat},${facility.lng}`
@@ -97,43 +99,61 @@ export default function Results() {
       id: Date.now(),
       patientName: patientForPdf.name,
       riskLevel,
-      date: target.toISOString(),
+      followUpDate: target.toISOString(),
       completed: false
     })
     localStorage.setItem('motherShieldFollowUps', JSON.stringify(data.slice(0, 100)))
     alert(`Follow-up saved for ${target.toDateString()}`)
   }
 
-  const bannerClass =
-    riskLevel === 'CRITICAL'
-      ? 'bg-gradient-to-r from-red-700 to-red-500 text-white animate-pulse'
-      : riskLevel === 'HIGH'
-        ? 'bg-gradient-to-r from-orange-600 to-red-500 text-white'
-        : riskLevel === 'MEDIUM'
-          ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900'
-          : 'bg-gradient-to-r from-green-600 to-emerald-500 text-white'
+  const getRiskBannerStyles = () => {
+    if (riskLevel === 'CRITICAL') {
+      return 'bg-gradient-to-r from-[#B71C1C] to-[#C62828] text-white animate-pulse'
+    }
+    if (riskLevel === 'HIGH') {
+      return 'bg-gradient-to-r from-[#E65100] to-[#F57C00] text-white'
+    }
+    if (riskLevel === 'MEDIUM') {
+      return 'bg-gradient-to-r from-[#F57F17] to-[#F9A825] text-slate-900'
+    }
+    return 'bg-gradient-to-r from-[#1B5E20] to-[#2E7D32] text-white'
+  }
+
+  const complications = riskResult?.complications || (riskResult?.explanation?.includes('complication') ? ['See explanation'] : [])
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4">
       {loading ? (
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-red-200 border-t-red-700" />
-            <div className="text-slate-700 font-medium animate-pulse">Running AI analysis...</div>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-16 w-16 animate-spin rounded-full border-4 border-red-200 border-t-[#C62828]" />
+            <p className="text-slate-700 font-medium">AI is analyzing vitals...</p>
           </div>
         </div>
       ) : (
-        <div className="max-w-6xl mx-auto space-y-5">
-          <div className={`rounded-2xl p-6 shadow-sm ${bannerClass}`}>
-            <div className="text-sm font-semibold uppercase tracking-wide opacity-90">Risk Level</div>
-            <div className="text-4xl font-extrabold leading-tight">
-              {riskLevel === 'CRITICAL' ? '⚠ CRITICAL' : `${riskLevel} RISK`}
+        <div className="max-w-6xl mx-auto space-y-6">
+          {/* Risk Banner */}
+          <div className={`rounded-[20px] p-10 shadow-lg ${getRiskBannerStyles()}`}>
+            <div className="flex items-center gap-4">
+              {riskLevel === 'CRITICAL' && <span className="text-5xl">⚠️</span>}
+              <div>
+                <p className="text-4xl md:text-5xl font-bold">
+                  {riskLevel === 'CRITICAL' ? 'CRITICAL RISK' : `${riskLevel} RISK`}
+                </p>
+                {riskLevel === 'CRITICAL' && (
+                  <p className="text-lg mt-2 opacity-90">Immediate hospital transfer required</p>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="app-card p-6">
-            <div className="text-lg font-semibold text-slate-900 mb-2">🤖 AI Explanation</div>
-            <p className="text-slate-700 text-[16px] whitespace-pre-wrap">
+          {/* AI Analysis Card */}
+          <div className="bg-white rounded-lg shadow-sm p-8 border border-slate-100">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">🤖</span>
+              <h2 className="text-2xl font-bold text-[#1A237E]">AI Analysis</h2>
+            </div>
+            <p className="text-slate-700 text-base leading-8">
               {riskResult?.explanation ||
                 (riskResult
                   ? JSON.stringify(riskResult, null, 2)
@@ -141,94 +161,127 @@ export default function Results() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          {/* Complications */}
+          {complications.length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm p-8 border border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 mb-4">Complications Detected</h3>
+              <div className="flex flex-wrap gap-3">
+                {complications.map((comp, idx) => (
+                  <span key={idx} className="bg-red-100 text-red-700 px-4 py-2 rounded-full font-semibold text-sm">
+                    {comp}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Immediate Actions */}
+          {riskResult?.immediateActions && riskResult.immediateActions.length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm p-8 border border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 mb-4">Immediate Actions</h3>
+              <ol className="space-y-3 list-decimal list-inside">
+                {riskResult.immediateActions.map((action, idx) => (
+                  <li key={idx} className="text-slate-700 text-base">
+                    {action}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Download & Share Buttons */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button
               type="button"
               onClick={() => exportReferralPDF(patientForPdf, riskResult, result?.referralLetter)}
-              className="px-4 py-2 rounded-lg bg-[#C62828] text-white font-semibold"
+              className="bg-[#C62828] hover:bg-red-700 text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2"
             >
-              Download Referral PDF
+              📄 Download Referral Letter
             </button>
             <button
               type="button"
               onClick={() => exportDangerSignsCard(patientForPdf, riskResult)}
-              className="px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold"
+              className="bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2"
             >
-              Download Danger Signs Card
+              ⚠️ Download Danger Signs Card
             </button>
             <button
               type="button"
               onClick={handleShareWhatsapp}
-              className="px-4 py-2 rounded-lg bg-[#2E7D32] text-white font-semibold"
+              className="w-full bg-[#2E7D32] hover:bg-green-700 text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2 md:col-span-1"
             >
-              Share via WhatsApp
+              📱 Share on WhatsApp
             </button>
           </div>
 
+          {/* Referral Letter Section */}
           {isHighOrCritical && (
-            <div className="app-card p-6">
-              <div className="text-lg font-semibold text-slate-900 mb-4">Referral Letter</div>
-              <div className="max-h-72 overflow-auto rounded-lg bg-slate-50 border border-slate-100 p-4">
-                <pre className="whitespace-pre-wrap text-slate-800 text-sm">
+            <div className="bg-white rounded-lg shadow-sm p-8 border border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 mb-4">Referral Letter</h3>
+              <div className="max-h-72 overflow-auto rounded-lg bg-slate-50 border border-slate-200 p-4">
+                <pre className="whitespace-pre-wrap text-slate-800 text-sm font-mono">
                   {result?.referralLetter || '(Referral letter not available.)'}
                 </pre>
               </div>
             </div>
           )}
 
-          <div className="app-card p-6">
-            <div className="text-lg font-semibold text-slate-900 mb-4">Nearest Maternity Hospitals</div>
+          {/* Nearest Hospitals */}
+          <div className="bg-white rounded-lg shadow-sm p-8 border border-slate-100">
+            <h3 className="text-lg font-bold text-slate-900 mb-6">🏥 Nearest Hospitals</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {(result?.facilities ?? []).slice(0, 3).map((facility, idx) => (
-                <div key={`${facility.name}-${idx}`} className="border border-slate-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div className="font-semibold text-slate-900">{facility.name}</div>
-                    <span className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-800 whitespace-nowrap">
-                      {facility.distance ?? 'N/A'}
+                <div key={`${facility.name}-${idx}`} className="border border-slate-200 rounded-lg p-4 space-y-3">
+                  <div>
+                    <h4 className="font-bold text-slate-900">{facility.name}</h4>
+                    <p className="text-sm text-slate-600">{facility.state}, {facility.district}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-semibold">
+                      {facility.distance ?? 'N/A'} km
                     </span>
                   </div>
-                  <div className="text-sm text-slate-600 mb-1">{facility.state}, {facility.district}</div>
-                  <div className="text-sm text-slate-700 mb-2">
-                    Phone:{' '}
-                    <a className="text-blue-700 hover:underline" href={`tel:${facility.phone}`}>
-                      {facility.phone ?? 'N/A'}
-                    </a>
+                  <div>
+                    <p className="text-sm text-slate-700">
+                      Phone:{' '}
+                      <a href={`tel:${facility.phone}`} className="text-blue-600 hover:underline font-semibold">
+                        {facility.phone ?? 'N/A'}
+                      </a>
+                    </p>
                   </div>
-
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <span className={`text-xs px-2 py-1 rounded-full ${facility.hasICU ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
-                      ICU {facility.hasICU ? 'Available' : 'Unavailable'}
+                  {facility.hasICU && (
+                    <span className="inline-block text-xs px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">
+                      ICU Available
                     </span>
-                    <span className={`text-xs px-2 py-1 rounded-full ${facility.hasBloodBank ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
-                      Blood Bank {facility.hasBloodBank ? 'Available' : 'Unavailable'}
-                    </span>
-                    <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-800">
-                      Beds: {facility.beds ?? 'N/A'}
-                    </span>
-                  </div>
-
-                  <button type="button" onClick={() => handleGetDirections(facility)} className="w-full px-3 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 text-sm">
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleGetDirections(facility)}
+                    className="w-full bg-[#C62828] hover:bg-red-700 text-white font-semibold py-2 rounded-lg text-sm"
+                  >
                     Get Directions
                   </button>
                 </div>
               ))}
             </div>
             {(!result?.facilities || result.facilities.length === 0) && (
-              <div className="text-sm text-gray-500 mt-4">No facilities available for the current risk level.</div>
+              <p className="text-sm text-slate-500 text-center py-4">No facilities available.</p>
             )}
           </div>
 
+          {/* Follow-up Button */}
           <button
             type="button"
             onClick={handleScheduleFollowUp}
-            className="w-full md:w-auto px-5 py-3 rounded-xl bg-[#1A237E] text-white font-semibold"
+            className="w-full bg-[#1A237E] hover:bg-indigo-900 text-white font-semibold px-6 py-3 rounded-lg"
           >
             Schedule Follow-up
           </button>
 
+          {/* Success Message */}
           {isHighOrCritical && result?.alertSent?.success && (
-            <div className="inline-flex items-center px-4 py-2 rounded-full bg-green-100 text-green-800 border border-green-200 font-semibold">
-              SMS sent successfully
+            <div className="bg-green-100 text-green-800 border border-green-200 rounded-full px-4 py-2 font-semibold text-center">
+              ✓ SMS sent successfully
             </div>
           )}
         </div>
