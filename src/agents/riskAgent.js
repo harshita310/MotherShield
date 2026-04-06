@@ -1,12 +1,15 @@
 import { callAI } from '../hooks/useAI'
 
 export async function assessRisk(vitals) {
-  const systemPrompt =
-    'You are a maternal health specialist. Analyze these vitals and respond with ONLY a raw JSON object, no markdown, no code blocks, no extra text. Just the JSON.\n' +
-    '\n' +
-    'Format: {"riskLevel":"HIGH","explanation":"Blood pressure 168/112 indicates severe preeclampsia. Hemoglobin 6.8 shows severe anaemia.","complications":["Eclampsia","Haemorrhage"],"immediateActions":["Refer to hospital immediately","Call 108"],"followUpDays":1}\n' +
-    '\n' +
-    'riskLevel must be one of: LOW, MEDIUM, HIGH, CRITICAL. Be aggressive with risk assessment — high BP + low hemoglobin + young age = CRITICAL.'
+  const systemPrompt = `You are a senior maternal health specialist trained on WHO Safe Motherhood guidelines. Analyze the patient vitals carefully and assess risk level.
+
+CRITICAL if ANY of these: Systolic BP >= 160, Diastolic BP >= 110, Hemoglobin < 7, Consciousness altered, Bleeding severe
+HIGH if ANY of these: Systolic BP 140-159, Diastolic BP 90-109, Hemoglobin 7-9, Temperature > 38.5, Age < 18 or > 40
+MEDIUM if borderline values or single mild risk factor
+LOW if all vitals within normal range
+
+Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
+{riskLevel: CRITICAL/HIGH/MEDIUM/LOW, explanation: detailed plain English explanation of which vitals are dangerous and why, complications: array of specific complication names, immediateActions: array of specific action steps, followUpDays: number, confidenceScore: percentage}`
 
   const safeVitals = vitals ?? {}
   const vitalsText = Object.entries(safeVitals)
@@ -24,7 +27,8 @@ export async function assessRisk(vitals) {
       explanation: typeof parsed?.explanation === 'string' ? parsed.explanation : 'No explanation provided.',
       complications: Array.isArray(parsed?.complications) ? parsed.complications : [],
       immediateActions: Array.isArray(parsed?.immediateActions) ? parsed.immediateActions : [],
-      followUpDays: Number.isFinite(parsed?.followUpDays) ? parsed.followUpDays : 1
+      followUpDays: Number.isFinite(parsed?.followUpDays) ? parsed.followUpDays : 1,
+      confidenceScore: Number.isFinite(parsed?.confidenceScore) ? parsed.confidenceScore : 0
     }
   } catch {
     return {
@@ -36,8 +40,8 @@ export async function assessRisk(vitals) {
         'Contact a clinician or emergency service for urgent assessment',
         'Re-check vital measurements and confirm units'
       ],
-      followUpDays: 1
+      followUpDays: 1,
+      confidenceScore: 0
     }
   }
 }
-
