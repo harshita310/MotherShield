@@ -1,173 +1,179 @@
 import { jsPDF } from 'jspdf'
-import thresholds from '../data/thresholds.json'
-
-function getVitalStatus(field, value) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return { label: 'N/A', color: [100, 100, 100] }
-
-  if (field === 'systolicBP' || field === 'diastolicBP' || field === 'bodyTemp') {
-    if (numeric >= thresholds[field].danger) return { label: 'Danger', color: [198, 40, 40] }
-    if (numeric >= thresholds[field].warning) return { label: 'Warning', color: [245, 124, 0] }
-    return { label: 'Normal', color: [46, 125, 50] }
-  }
-
-  if (field === 'hemoglobin') {
-    if (numeric < thresholds.hemoglobin.warning) return { label: 'Danger', color: [198, 40, 40] }
-    if (numeric < thresholds.hemoglobin.normal) return { label: 'Warning', color: [245, 124, 0] }
-    return { label: 'Normal', color: [46, 125, 50] }
-  }
-
-  return { label: 'Normal', color: [46, 125, 50] }
-}
-
-function riskColor(level) {
-  if (level === 'LOW') return [46, 125, 50]
-  if (level === 'MEDIUM') return [245, 124, 0]
-  return [198, 40, 40]
-}
 
 export function exportReferralPDF(patient, riskResult, referralLetter) {
-  const doc = new jsPDF({ format: 'a4' })
-  const now = new Date()
-  const riskLevel = riskResult?.riskLevel ?? 'HIGH'
-
-  doc.setTextColor(198, 40, 40)
-  doc.setFontSize(20)
-  doc.text('MotherShield', 14, 18)
-  doc.setTextColor(26, 35, 126)
+  const doc = new jsPDF()
+  
+  // Colors
+  const RED = [198, 40, 40]
+  const NAVY = [26, 35, 126]
+  const GRAY = [100, 100, 100]
+  
+  // Header
+  doc.setFontSize(24)
+  doc.setTextColor(...RED)
+  doc.setFont(undefined, 'bold')
+  doc.text('MOTHERSHIELD', 20, 20)
+  
   doc.setFontSize(16)
-  doc.text('Maternal Risk Referral Letter', 14, 28)
-  doc.setFontSize(10)
-  doc.setTextColor(100, 116, 139)
-  doc.text(`Generated: ${now.toLocaleString()}`, 14, 34)
-  doc.setDrawColor(226, 232, 240)
-  doc.line(14, 38, 196, 38)
-
-  let y = 46
-  doc.setTextColor(15, 23, 42)
-  doc.setFontSize(12)
-  doc.text('1. Patient Details', 14, y)
-  y += 6
-  const details = [
-    ['Age', String(patient?.age ?? 'N/A')],
-    ['Gestational Weeks', String(patient?.gestationalWeeks ?? 'N/A')],
-    ['Previous Births', String(patient?.previousBirths ?? 'N/A')],
-    ['Previous Complications', String(patient?.previousComplications ?? 'None')]
-  ]
-  details.forEach(([k, v]) => {
-    doc.setFont(undefined, 'bold')
-    doc.text(`${k}:`, 16, y)
-    doc.setFont(undefined, 'normal')
-    doc.text(v, 64, y)
-    y += 6
-  })
-
-  y += 2
-  doc.setFont(undefined, 'bold')
-  doc.text('2. Vitals', 14, y)
-  y += 6
-  const vitals = [
-    ['Systolic BP', 'systolicBP', patient?.systolicBP],
-    ['Diastolic BP', 'diastolicBP', patient?.diastolicBP],
-    ['Hemoglobin', 'hemoglobin', patient?.hemoglobin],
-    ['Body Temperature', 'bodyTemp', patient?.bodyTemp]
-  ]
-  vitals.forEach(([label, field, value]) => {
-    const status = getVitalStatus(field, value)
-    doc.setTextColor(15, 23, 42)
-    doc.setFont(undefined, 'normal')
-    doc.text(`${label}: ${value ?? 'N/A'}`, 16, y)
-    doc.setTextColor(...status.color)
-    doc.setFont(undefined, 'bold')
-    doc.text(status.label, 130, y)
-    y += 6
-  })
-
-  y += 2
-  doc.setTextColor(15, 23, 42)
-  doc.setFont(undefined, 'bold')
-  doc.text('3. Risk Assessment', 14, y)
-  y += 7
-  doc.setTextColor(...riskColor(riskLevel))
-  doc.setFontSize(20)
-  doc.text(riskLevel, 16, y)
-  y += 8
-  doc.setTextColor(15, 23, 42)
+  doc.setTextColor(...NAVY)
+  doc.text('Maternal Risk Referral Letter', 20, 30)
+  
+  // Date aligned right
   doc.setFontSize(11)
+  doc.setTextColor(...GRAY)
   doc.setFont(undefined, 'normal')
-  const explanationLines = doc.splitTextToSize(riskResult?.explanation ?? 'No explanation provided.', 180)
-  doc.text(explanationLines, 16, y)
-  y += explanationLines.length * 5 + 4
-
+  const today = new Date().toLocaleDateString()
+  doc.text(`Date: ${today}`, 190, 30, { align: 'right' })
+  
+  // Horizontal line
+  doc.setDrawColor(...GRAY)
+  doc.line(20, 35, 190, 35)
+  
+  let yPos = 45
+  
+  // Patient Details Section
+  doc.setFontSize(12)
+  doc.setTextColor(...NAVY)
   doc.setFont(undefined, 'bold')
-  doc.text('4. Complications', 14, y)
-  y += 6
+  doc.text('Patient Details', 20, yPos)
+  yPos += 8
+  
+  doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
   doc.setFont(undefined, 'normal')
-  ;(riskResult?.complications ?? ['No listed complications']).forEach((item) => {
-    doc.text(`• ${item}`, 16, y)
-    y += 5
+  const patientDetails = [
+    ['Name:', patient.name || 'N/A'],
+    ['Age:', `${patient.age} years`],
+    ['Gestational Weeks:', `${patient.gestationalWeeks} weeks`],
+    ['Previous Births:', `${patient.previousBirths}`],
+    ['Previous Complications:', patient.previousComplications || 'None']
+  ]
+  
+  patientDetails.forEach((row) => {
+    doc.text(`${row[0]}`, 25, yPos)
+    doc.text(`${row[1]}`, 80, yPos)
+    yPos += 6
   })
-
-  y += 2
+  
+  yPos += 4
+  
+  // Vitals Section
+  doc.setFontSize(12)
+  doc.setTextColor(...NAVY)
   doc.setFont(undefined, 'bold')
-  doc.text('5. Immediate Actions', 14, y)
-  y += 6
+  doc.text('Vital Signs', 20, yPos)
+  yPos += 8
+  
+  doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
   doc.setFont(undefined, 'normal')
-  ;(riskResult?.immediateActions ?? ['Refer to hospital immediately']).forEach((item, idx) => {
-    doc.text(`${idx + 1}. ${item}`, 16, y)
-    y += 5
+  const vitals = [
+    [`Systolic BP: ${patient.systolicBP} mmHg`, `Diastolic BP: ${patient.diastolicBP} mmHg`],
+    [`Hemoglobin: ${patient.hemoglobin} g/dL`, `Body Temperature: ${patient.bodyTemp}°C`]
+  ]
+  
+  vitals.forEach((row) => {
+    doc.text(row[0], 25, yPos)
+    doc.text(row[1], 110, yPos)
+    yPos += 6
   })
-
-  y += 2
+  
+  yPos += 4
+  
+  // Risk Assessment Section
+  doc.setFontSize(12)
+  doc.setTextColor(...NAVY)
   doc.setFont(undefined, 'bold')
-  doc.text('6. Referral Letter', 14, y)
-  y += 4
-  doc.setDrawColor(203, 213, 225)
-  doc.rect(14, y, 182, 40)
-  const letterLines = doc.splitTextToSize(referralLetter || 'Referral letter unavailable.', 176)
+  doc.text('Risk Assessment', 20, yPos)
+  yPos += 8
+  
+  const riskColor = riskResult?.riskLevel === 'CRITICAL' ? [183, 28, 28] : 
+                    riskResult?.riskLevel === 'HIGH' ? [230, 81, 0] :
+                    riskResult?.riskLevel === 'MEDIUM' ? [245, 127, 23] : [27, 94, 32]
+  
+  doc.setFontSize(14)
+  doc.setTextColor(...riskColor)
+  doc.setFont(undefined, 'bold')
+  doc.text(`Risk Level: ${riskResult?.riskLevel || 'UNKNOWN'}`, 25, yPos)
+  yPos += 8
+  
+  doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
   doc.setFont(undefined, 'normal')
-  doc.text(letterLines.slice(0, 7), 16, y + 6)
-
+  const explanation = riskResult?.explanation || 'No explanation provided'
+  const explLines = doc.splitTextToSize(explanation, 160)
+  doc.text(explLines, 25, yPos)
+  yPos += explLines.length * 5 + 4
+  
+  // Referral Letter Section
+  if (referralLetter) {
+    doc.setFontSize(12)
+    doc.setTextColor(...NAVY)
+    doc.setFont(undefined, 'bold')
+    doc.text('Referral Letter', 20, yPos)
+    yPos += 8
+    
+    doc.setFontSize(10)
+    doc.setTextColor(0, 0, 0)
+    doc.setFont(undefined, 'normal')
+    const letterLines = doc.splitTextToSize(referralLetter, 160)
+    doc.text(letterLines, 25, yPos)
+    yPos += letterLines.length * 4
+  }
+  
+  // Footer
   doc.setFontSize(9)
-  doc.setTextColor(100, 116, 139)
-  doc.text('Generated by MotherShield AI — For medical professional use only', 14, 288)
-
-  const dateStamp = now.toISOString().split('T')[0]
-  doc.save(`MotherShield_Referral_${dateStamp}.pdf`)
+  doc.setTextColor(...GRAY)
+  doc.text('Generated by MotherShield AI — For medical professional use only', 105, 280, { align: 'center' })
+  
+  doc.save('MotherShield_Referral.pdf')
 }
 
 export function exportDangerSignsCard(patient, riskResult) {
-  const doc = new jsPDF({ format: 'a5' })
-  const now = new Date()
-
-  doc.setTextColor(198, 40, 40)
+  const doc = new jsPDF('landscape', 'mm', 'a5')
+  
+  const RED = [198, 40, 40]
+  const NAVY = [26, 35, 126]
+  
+  // Title
   doc.setFontSize(18)
-  doc.text('DANGER SIGNS — Show this to your doctor', 12, 18)
-  doc.setTextColor(15, 23, 42)
+  doc.setTextColor(...RED)
+  doc.setFont(undefined, 'bold')
+  doc.text('DANGER SIGNS CARD', 10, 15)
+  
+  // Patient Info
   doc.setFontSize(11)
-  doc.text(`Patient: ${patient?.name ?? 'Patient'}`, 12, 28)
-  doc.text(`Date: ${now.toLocaleDateString()}`, 12, 34)
-
-  const complications = Array.isArray(riskResult?.complications) ? riskResult.complications : []
-  const signs = complications.slice(0, 5)
-  while (signs.length < 5) {
-    signs.push(['Severe headache', 'Blurred vision', 'Heavy bleeding', 'Severe abdominal pain', 'Fever with chills'][signs.length])
-  }
-
-  let y = 44
-  signs.forEach((sign, idx) => {
-    doc.text(`${idx + 1}. ${sign}`, 14, y)
-    y += 8
+  doc.setTextColor(...NAVY)
+  doc.setFont(undefined, 'bold')
+  doc.text(`Patient: ${patient.name || 'N/A'}`, 10, 25)
+  doc.text(`Age: ${patient.age || 'N/A'} | Date: ${new Date().toLocaleDateString()}`, 10, 32)
+  
+  // Danger Signs
+  doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
+  doc.setFont(undefined, 'bold')
+  doc.text('Danger Signs to Watch For:', 10, 42)
+  
+  doc.setFontSize(9)
+  doc.setFont(undefined, 'normal')
+  const complications = riskResult?.complications || ['Severe headache', 'Visual disturbances', 'Severe abdominal pain', 'Vaginal bleeding']
+  
+  let yPos = 50
+  complications.forEach((comp, idx) => {
+    doc.text(`${idx + 1}. ${comp}`, 15, yPos)
+    yPos += 7
   })
-
-  y += 4
+  
+  // Emergency Info
+  doc.setFontSize(14)
+  doc.setTextColor(...RED)
   doc.setFont(undefined, 'bold')
-  doc.text('Emergency Number: 108', 12, y)
-  y += 12
-  doc.setTextColor(198, 40, 40)
-  doc.setFontSize(13)
-  doc.setFont(undefined, 'bold')
-  doc.text('If any of these occur — go to hospital IMMEDIATELY', 12, y)
-
+  doc.text('EMERGENCY: Call 108 Immediately', 105, 60, { align: 'center' })
+  
+  doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
+  doc.setFont(undefined, 'normal')
+  doc.text('If any danger signs appear, seek immediate medical attention', 105, 70, { align: 'center' })
+  
   doc.save('MotherShield_DangerSigns.pdf')
 }
