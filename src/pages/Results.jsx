@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { runAgents } from '../agents/orchestrator'
 import { exportDangerSignsCard, exportReferralPDF } from '../utils/pdfExport'
+import { getDirectionsUrl } from '../agents/facilityAgent'
 
 export default function Results() {
   const location = useLocation()
@@ -81,7 +82,7 @@ export default function Results() {
   }, [result, riskLevel, vitals, riskResult])
 
   function handleGetDirections(facility) {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${facility.lat},${facility.lng}`
+    const url = getDirectionsUrl(facility.lat, facility.lng)
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
@@ -238,7 +239,7 @@ export default function Results() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-semibold">
-                      {facility.distance ?? 'N/A'} km
+                      {facility.distance} km
                     </span>
                   </div>
                   <div>
