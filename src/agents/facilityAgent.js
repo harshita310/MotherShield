@@ -15,6 +15,10 @@ function haversineDistanceKm(lat1, lng1, lat2, lng2) {
   return EARTH_RADIUS_KM * c
 }
 
+export function getDirectionsUrl(lat, lng) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+}
+
 const INDIAN_MATERNITY_HOSPITALS = [
   { name: 'AIIMS New Delhi', state: 'Delhi', district: 'New Delhi', lat: 28.5672, lng: 77.21, phone: '+91-11-26588500', hasICU: true, hasBloodBank: true, beds: 2478 },
   { name: 'Safdarjung Hospital', state: 'Delhi', district: 'New Delhi', lat: 28.5682, lng: 77.2058, phone: '+91-11-26730000', hasICU: true, hasBloodBank: true, beds: 1531 },
@@ -60,10 +64,12 @@ export async function findNearestFacility() {
     const distanceKm = haversineDistanceKm(userLat, userLng, hospital.lat, hospital.lng)
     return {
       ...hospital,
-      distance: `${distanceKm.toFixed(1)} km`
+      distance: `${distanceKm.toFixed(1)}`,
+      distanceKm: distanceKm.toFixed(1),
+      lat: hospital.lat,
+      lng: hospital.lng
     }
   })
-    .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance))
+    .sort((a, b) => parseFloat(a.distanceKm) - parseFloat(b.distanceKm))
     .slice(0, 3)
 }
-
