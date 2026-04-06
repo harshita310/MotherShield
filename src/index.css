@@ -1,15 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    font-family: 'Inter', sans-serif;
-    background-color: #f8fafc;
-    color: #0f172a;
-  }
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #F0F4F8;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 @layer components {
@@ -17,4 +18,17 @@
     @apply bg-white rounded-2xl shadow-sm border border-slate-100;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   }
+}
+
+@keyframes pulse-banner {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.animate-pulse {
+  animation: pulse-banner 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
