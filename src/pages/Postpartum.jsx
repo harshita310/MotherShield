@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useAI } from '../hooks/useAI';
+import { callAI } from '../hooks/useAI';
 
 export default function Postpartum() {
-  const { callAI } = useAI();
+  
   const [checkIns, setCheckIns] = useState({
     '6h': { status: 'Pending', data: null },
     '24h': { status: 'Pending', data: null },
