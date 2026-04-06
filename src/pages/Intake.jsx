@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import thresholds from '../data/thresholds.json';
 
@@ -19,6 +19,49 @@ export default function Intake() {
   const [userLng, setUserLng] = useState(null);
   const [locationStatus, setLocationStatus] = useState('Location not shared yet');
   const [submitting, setSubmitting] = useState(false);
+  const [listeningField, setListeningField] = useState(null);
+  const [recognition, setRecognition] = useState(null);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.lang = 'en-IN';
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        handleVoiceInput(transcript);
+        setListeningField(null);
+      };
+      rec.onerror = () => {
+        setListeningField(null);
+      };
+      rec.onend = () => {
+        setListeningField(null);
+      };
+      setRecognition(rec);
+    }
+  }, []);
+
+  const handleVoiceInput = (transcript) => {
+    if (listeningField === 'patientName') setPatientName(transcript);
+    else if (listeningField === 'familyPhone') setFamilyPhone(transcript);
+    else if (listeningField === 'systolicBP') setSystolicBP(transcript);
+    else if (listeningField === 'diastolicBP') setDiastolicBP(transcript);
+    else if (listeningField === 'hemoglobin') setHemoglobin(transcript);
+    else if (listeningField === 'gestationalWeeks') setGestationalWeeks(transcript);
+    else if (listeningField === 'patientAge') setPatientAge(transcript);
+    else if (listeningField === 'previousBirths') setPreviousBirths(transcript);
+    else if (listeningField === 'bodyTemp') setBodyTemp(transcript);
+  };
+
+  const startListening = (field) => {
+    if (recognition) {
+      setListeningField(field);
+      recognition.start();
+    }
+  };
 
   function getStatus(field, value) {
     const num = Number(value);
@@ -110,6 +153,24 @@ export default function Intake() {
     }, 400);
   }
 
+  const VoiceButton = ({ field }) => {
+    if (!recognition) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => startListening(field)}
+        className={`ml-2 w-8 h-8 rounded-full flex items-center justify-center transition ${
+          listeningField === field
+            ? 'bg-red-600 text-white animate-pulse'
+            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+        }`}
+        title="Click to use voice input"
+      >
+        🎤
+      </button>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
       <div className="w-full max-w-[700px] bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.08)] p-12">
@@ -136,7 +197,10 @@ export default function Intake() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Patient Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">Patient Name</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Patient Name</label>
+                <VoiceButton field="patientName" />
+              </div>
               <input
                 type="text"
                 value={patientName}
@@ -147,7 +211,10 @@ export default function Intake() {
 
             {/* Family Phone */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">Family Phone</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Family Phone</label>
+                <VoiceButton field="familyPhone" />
+              </div>
               <input
                 type="tel"
                 value={familyPhone}
@@ -159,7 +226,10 @@ export default function Intake() {
 
             {/* Systolic BP */}
             <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('systolicBP', systolicBP))}`}>
-              <label className="block text-sm font-medium text-gray-700">Systolic BP (mmHg)</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Systolic BP (mmHg)</label>
+                <VoiceButton field="systolicBP" />
+              </div>
               <input
                 type="number"
                 value={systolicBP}
@@ -178,7 +248,10 @@ export default function Intake() {
 
             {/* Diastolic BP */}
             <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('diastolicBP', diastolicBP))}`}>
-              <label className="block text-sm font-medium text-gray-700">Diastolic BP (mmHg)</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Diastolic BP (mmHg)</label>
+                <VoiceButton field="diastolicBP" />
+              </div>
               <input
                 type="number"
                 value={diastolicBP}
@@ -197,7 +270,10 @@ export default function Intake() {
 
             {/* Hemoglobin */}
             <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('hemoglobin', hemoglobin))}`}>
-              <label className="block text-sm font-medium text-gray-700">Hemoglobin (g/dL)</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Hemoglobin (g/dL)</label>
+                <VoiceButton field="hemoglobin" />
+              </div>
               <input
                 type="number"
                 value={hemoglobin}
@@ -216,7 +292,10 @@ export default function Intake() {
 
             {/* Gestational Weeks */}
             <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('gestationalWeeks', gestationalWeeks))}`}>
-              <label className="block text-sm font-medium text-gray-700">Gestational Age (weeks)</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Gestational Age (weeks)</label>
+                <VoiceButton field="gestationalWeeks" />
+              </div>
               <input
                 type="number"
                 value={gestationalWeeks}
@@ -235,7 +314,10 @@ export default function Intake() {
 
             {/* Patient Age */}
             <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('patientAge', patientAge))}`}>
-              <label className="block text-sm font-medium text-gray-700">Patient Age</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Patient Age</label>
+                <VoiceButton field="patientAge" />
+              </div>
               <input
                 type="number"
                 value={patientAge}
@@ -253,9 +335,12 @@ export default function Intake() {
 
             {/* Previous Births */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Number of Previous Births
-              </label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">
+                  Number of Previous Births
+                </label>
+                <VoiceButton field="previousBirths" />
+              </div>
               <input
                 type="number"
                 value={previousBirths}
@@ -280,7 +365,10 @@ export default function Intake() {
 
             {/* Body Temperature */}
             <div className={`md:col-span-2 border-l-4 rounded-md p-2 ${statusClasses(getStatus('bodyTemp', bodyTemp))}`}>
-              <label className="block text-sm font-medium text-gray-700">Body Temperature (°C)</label>
+              <div className="flex items-center">
+                <label className="block text-sm font-medium text-gray-700">Body Temperature (°C)</label>
+                <VoiceButton field="bodyTemp" />
+              </div>
               <input
                 type="number"
                 value={bodyTemp}
