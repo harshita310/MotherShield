@@ -1,78 +1,60 @@
-import React, { useState, useEffect } from 'react';
+// Updated: Phase 2 complete
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
   const [assessments, setAssessments] = useState([]);
-  const [counts, setCounts] = useState({
-    total: 0,
-    critical: 0,
-    referred: 0,
-    pending: 0,
-    LOW: 0,
-    MEDIUM: 0,
-    HIGH: 0,
-    CRITICAL: 0,
-  });
+  const [followUps, setFollowUps] = useState([]);
 
   useEffect(() => {
-    const data = JSON.parse(localStorage.getItem('motherShieldAssessments') || '[]');
+    document.title = 'MotherShield — Dashboard';
+    const data   = JSON.parse(localStorage.getItem('motherShieldAssessments') || '[]');
+    const fups   = JSON.parse(localStorage.getItem('motherShieldFollowUps')   || '[]');
     setAssessments(data);
-
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    const newCounts = {
-      total: data.length,
-      critical: 0,
-      referred: 0,
-      pending: 0,
-      LOW: 0,
-      MEDIUM: 0,
-      HIGH: 0,
-      CRITICAL: 0,
-    };
-
-    data.forEach((item) => {
-      const itemDate = new Date(item.date);
-      if (
-        itemDate.getMonth() === currentMonth &&
-        itemDate.getFullYear() === currentYear
-      ) {
-        if (item.riskLevel === 'CRITICAL') newCounts.critical += 1;
-      }
-      if (item.riskLevel === 'HIGH' || item.riskLevel === 'CRITICAL') {
-        newCounts.referred += 1;
-      }
-      if (item.riskLevel) newCounts[item.riskLevel] += 1;
-    });
-
-    // Pending follow-ups
-    const followUps = JSON.parse(localStorage.getItem('motherShieldFollowUps') || '[]');
-    newCounts.pending = followUps.filter((f) => !f.completed && new Date(f.followUpDate) < now).length;
-
-    setCounts(newCounts);
+    setFollowUps(fups);
   }, []);
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  // ── All stats memoised — won't recalculate on unrelated renders ──
+  const counts = useMemo(() => {
+    const now          = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear  = now.getFullYear();
 
-  const bars = [
-    { label: 'LOW', value: counts.LOW, color: '#2E7D32' },
-    { label: 'MEDIUM', value: counts.MEDIUM, color: '#F59E0B' },
-    { label: 'HIGH', value: counts.HIGH, color: '#EA580C' },
-    { label: 'CRITICAL', value: counts.CRITICAL, color: '#C62828' },
-  ];
+    const c = { total: assessments.length, critical: 0, referred: 0, pending: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
 
-  const maxBar = Math.max(...bars.map((b) => b.value), 1);
+    assessments.forEach((item) => {
+      const d = new Date(item.date);
+      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+        if (item.riskLevel === 'CRITICAL') c.critical += 1;
+      }
+      if (item.riskLevel === 'HIGH' || item.riskLevel === 'CRITICAL') c.referred += 1;
+      if (item.riskLevel) c[item.riskLevel] = (c[item.riskLevel] ?? 0) + 1;
+    });
+
+    c.pending = followUps.filter(
+      (f) => !f.completed && new Date(f.followUpDate) < now
+    ).length;
+
+    return c;
+  }, [assessments, followUps]);
+
+  const today = useMemo(() =>
+    new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  , []);
+
+  const bars = useMemo(() => [
+    { label: 'LOW',      value: counts.LOW,      color: '#2E7D32' },
+    { label: 'MEDIUM',   value: counts.MEDIUM,   color: '#F59E0B' },
+    { label: 'HIGH',     value: counts.HIGH,      color: '#EA580C' },
+    { label: 'CRITICAL', value: counts.CRITICAL,  color: '#C62828' },
+  ], [counts]);
+
+  const maxBar = useMemo(() => Math.max(...bars.map((b) => b.value), 1), [bars]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-6">
       <div className="max-w-6xl mx-auto space-y-5">
+
         {/* Header */}
         <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-2">
           <div>
@@ -82,7 +64,6 @@ export default function Dashboard() {
         </header>
 
         {assessments.length === 0 ? (
-          // Empty State
           <section className="bg-white rounded-lg shadow-sm p-12 text-center">
             <p className="text-4xl mb-4">😢</p>
             <p className="text-slate-600 mb-6 text-lg">No assessments yet</p>
@@ -97,25 +78,18 @@ export default function Dashboard() {
           <>
             {/* Metric Cards */}
             <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* Total Assessments */}
               <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-[#C62828]">
                 <p className="text-slate-500 text-sm">Total Assessments</p>
                 <p className="text-3xl font-bold text-[#1A237E] mt-2">{counts.total}</p>
               </div>
-
-              {/* Critical This Month */}
               <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-[#C62828]">
                 <p className="text-slate-500 text-sm">Critical This Month</p>
                 <p className="text-3xl font-bold text-[#C62828] mt-2">{counts.critical}</p>
               </div>
-
-              {/* Women Referred */}
               <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-[#C62828]">
                 <p className="text-slate-500 text-sm">Women Referred</p>
                 <p className="text-3xl font-bold text-[#1A237E] mt-2">{counts.referred}</p>
               </div>
-
-              {/* Pending Follow-ups */}
               <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-[#C62828]">
                 <p className="text-slate-500 text-sm">Pending Follow-ups</p>
                 <p className="text-3xl font-bold text-[#1A237E] mt-2">{counts.pending}</p>
@@ -133,22 +107,10 @@ export default function Dashboard() {
                   return (
                     <g key={bar.label}>
                       <rect x={x} y={y} width="60" height={barHeight} fill={bar.color} rx="8" />
-                      <text
-                        x={x + 30}
-                        y={195}
-                        textAnchor="middle"
-                        fontSize="12"
-                        fill="#334155"
-                      >
+                      <text x={x + 30} y={195} textAnchor="middle" fontSize="12" fill="#334155">
                         {bar.label}
                       </text>
-                      <text
-                        x={x + 30}
-                        y={y - 8}
-                        textAnchor="middle"
-                        fontSize="12"
-                        fill="#0F172A"
-                      >
+                      <text x={x + 30} y={y - 8} textAnchor="middle" fontSize="12" fill="#0F172A">
                         {bar.value}
                       </text>
                     </g>
@@ -174,26 +136,21 @@ export default function Dashboard() {
                   <tbody>
                     {assessments.slice(0, 12).map((item) => (
                       <tr key={item.id} className="border-b border-slate-100">
-                        <td className="py-3 px-4">
-                          {new Date(item.date).toLocaleDateString()}
-                        </td>
+                        <td className="py-3 px-4">{new Date(item.date).toLocaleDateString()}</td>
                         <td className="py-3 px-4">{item.patientAge || 'N/A'}</td>
                         <td className="py-3 px-4">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                              item.riskLevel === 'CRITICAL' ||
-                              item.riskLevel === 'HIGH'
-                                ? 'bg-red-100 text-red-700'
-                                : item.riskLevel === 'MEDIUM'
-                                ? 'bg-amber-100 text-amber-700'
-                                : 'bg-green-100 text-green-700'
-                            }`}
-                          >
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                            item.riskLevel === 'CRITICAL' || item.riskLevel === 'HIGH'
+                              ? 'bg-red-100 text-red-700'
+                              : item.riskLevel === 'MEDIUM'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-green-100 text-green-700'
+                          }`}>
                             {item.riskLevel}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-600">
-                          BP {item.systolicBP}/{item.diastolicBP}, Hb {item.hemoglobin}
+                          BP {item.vitals?.systolicBP ?? item.systolicBP}/{item.vitals?.diastolicBP ?? item.diastolicBP}, Hb {item.vitals?.hemoglobin ?? item.hemoglobin}
                         </td>
                         <td className="py-3 px-4 text-[#1A237E]">Stored</td>
                       </tr>

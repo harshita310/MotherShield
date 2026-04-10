@@ -1,6 +1,20 @@
 import { callAI } from '../hooks/useAI'
+import { calculateOfflineRisk } from '../utils/offlineRisk'
 
 export async function assessRisk(vitals) {
+  // Offline path
+  if (!navigator.onLine) {
+    console.warn('[MotherShield] Offline — using WHO threshold risk calculation')
+    const offline = calculateOfflineRisk(vitals)
+    // Queue for later sync
+    try {
+      const q = JSON.parse(localStorage.getItem('pendingSync') || '[]')
+      q.push({ ts: Date.now(), vitals })
+      localStorage.setItem('pendingSync', JSON.stringify(q.slice(-50)))
+    } catch (_) {}
+    return offline
+  }
+
   const systemPrompt = `You are a senior maternal health specialist trained on WHO Safe Motherhood guidelines. Analyze the patient vitals carefully and assess risk level.
 
 CRITICAL if ANY of these: Systolic BP >= 160, Diastolic BP >= 110, Hemoglobin < 7, Consciousness altered, Bleeding severe
@@ -18,7 +32,12 @@ Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
 
   try {
     const responseText = await callAI(systemPrompt, `Patient vitals:\n${vitalsText}`)
-    const cleaned = responseText.replace(/```json|```/g, '').trim()
+    let cleaned = responseText.replace(/```json/g, '').replace(/```/g, '').trim()
+    const firstBrace = cleaned.indexOf('{')
+    const lastBrace = cleaned.lastIndexOf('}')
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+    }
     const parsed = JSON.parse(cleaned)
     return {
       riskLevel: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(parsed?.riskLevel)
@@ -30,7 +49,9 @@ Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
       followUpDays: Number.isFinite(parsed?.followUpDays) ? parsed.followUpDays : 1,
       confidenceScore: Number.isFinite(parsed?.confidenceScore) ? parsed.confidenceScore : 0
     }
-  } catch {
+  } catch (err) {
+    // If offline happened mid-flight, fall back
+    if (!navigator.onLine) return calculateOfflineRisk(vitals)
     return {
       riskLevel: 'HIGH',
       explanation:

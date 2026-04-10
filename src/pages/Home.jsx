@@ -1,6 +1,14 @@
+// Updated: Phase 2 complete
 import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
 
-export default function Home() {
+export default function Home({ t }) {
+  const tFn = t || ((k) => k)
+
+  useEffect(() => {
+    document.title = 'MotherShield — AI Maternal Health'
+  }, [])
+
   return (
     <div className="bg-white">
       {/* Hero Section */}
