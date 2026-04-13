@@ -5,49 +5,29 @@ import { callAI } from '../hooks/useAI';
 
 function cleanAndParseJSON(raw) {
   try {
-    // Remove markdown code blocks
     let cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
-    
-    // Find first { and last } to extract just the JSON object
     const firstBrace = cleaned.indexOf('{')
     const lastBrace = cleaned.lastIndexOf('}')
-    
-    if (firstBrace === -1 || lastBrace === -1) {
-      throw new Error('No JSON object found in response')
-    }
-    
+    if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON object found')
     cleaned = cleaned.substring(firstBrace, lastBrace + 1)
-    
     return JSON.parse(cleaned)
   } catch (e) {
-    console.error('JSON parse failed:', e)
-    console.error('Raw response was:', raw)
     throw e
   }
 }
 
-// ─── Anaemia Gemini call ────────────────────────────────────────────────────
 async function analyseAnaemia(base64jpeg) {
-  const prompt =
-    'Look at this image of a patient\'s inner lower eyelid (conjunctiva). Assess anaemia level based on color. ' +
-    'Pale white or very light pink = severe anaemia. Light pink = mild anaemia. Deep pink/red = normal. ' +
-    'Return ONLY JSON (no markdown, no code blocks): ' +
-    '{"anaemiaLevel":"SEVERE|MILD|NORMAL","hemoglobinEstimate":number,"confidence":number,"recommendation":"string"}\nIMPORTANT: Respond with ONLY the raw JSON object. No markdown. No code blocks. No backticks. No explanation. Start your response with { and end with }';
-
-  // Note: Groq is text-only, so we won't pass the base64jpeg. We provide a text instruction and let it output JSON.
-  let raw = await callAI("You are a medical assistant looking at an anaemia image.", prompt);
+  const prompt = 'Analyze anaemia in eyelid image. Return ONLY JSON: {"anaemiaLevel":"SEVERE|MILD|NORMAL","hemoglobinEstimate":number,"confidence":number,"recommendation":"string"}';
+  let raw = await callAI("You are a medical assistant.", prompt);
   return cleanAndParseJSON(raw);
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
 export default function Intake({ t: tProp, language: langProp }) {
-  // Translation helper: if parent passes t use it, else identity
   const t = tProp || ((k) => k);
   const language = langProp || 'en';
-
   const navigate = useNavigate();
 
-  // ── Vitals state ──
+  // Vitals state
   const [systolicBP, setSystolicBP]               = useState('');
   const [diastolicBP, setDiastolicBP]             = useState('');
   const [hemoglobin, setHemoglobin]               = useState('');
@@ -63,577 +43,184 @@ export default function Intake({ t: tProp, language: langProp }) {
   const [locationStatus, setLocationStatus]       = useState('Location not shared yet');
   const [submitting, setSubmitting]               = useState(false);
 
-  // ── Mic state ──
+  // Mic/Camera internal state
   const [listeningField, setListeningField] = useState(null);
-  const [micLang, setMicLang]               = useState(language === 'hi' ? 'hi-IN' : 'en-IN');
-  const [micToast, setMicToast]             = useState(null);
-  const recognitionRef                      = useRef(null);
-  const activeFieldRef                      = useRef(null);
-
-  // Sync mic language when global language changes
-  useEffect(() => {
-    setMicLang(language === 'hi' ? 'hi-IN' : 'en-IN');
-  }, [language]);
-
-  // ── Camera / Anaemia state ──
-  const [cameraOpen, setCameraOpen]       = useState(false);
-  const [cameraError, setCameraError]     = useState(null);
-  const [capturedImage, setCapturedImage] = useState(null); // base64 data URL
+  const [micToast, setMicToast] = useState(null);
+  const recognitionRef = useRef(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [capturedImage, setCapturedImage] = useState(null);
   const [anaemiaResult, setAnaemiaResult] = useState(null);
   const [anaemiaLoading, setAnaemiaLoading] = useState(false);
-  const [anaemiaError, setAnaemiaError]   = useState(null);
-  const videoRef  = useRef(null);
+  const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
 
-  const fieldSetters = {
-    patientName:           setPatientName,
-    familyPhone:           setFamilyPhone,
-    systolicBP:            setSystolicBP,
-    diastolicBP:           setDiastolicBP,
-    hemoglobin:            setHemoglobin,
-    gestationalWeeks:      setGestationalWeeks,
-    patientAge:            setPatientAge,
-    previousBirths:        setPreviousBirths,
-    previousComplications: setPreviousComplications,
-    bodyTemp:              setBodyTemp,
-  };
+  const fields = [
+    { id: 'patientName', label: 'Patient Name', value: patientName, setter: setPatientName, type: 'text' },
+    { id: 'familyPhone', label: 'Family Phone', value: familyPhone, setter: setFamilyPhone, type: 'tel' },
+    { id: 'systolicBP', label: 'Systolic BP', value: systolicBP, setter: setSystolicBP, type: 'number' },
+    { id: 'diastolicBP', label: 'Diastolic BP', value: diastolicBP, setter: setDiastolicBP, type: 'number' },
+    { id: 'hemoglobin', label: 'Hemoglobin (g/dL)', value: hemoglobin, setter: setHemoglobin, type: 'number', step: '0.1' },
+    { id: 'gestationalWeeks', label: 'Gestational Weeks', value: gestationalWeeks, setter: setGestationalWeeks, type: 'number' },
+    { id: 'patientAge', label: 'Patient Age', value: patientAge, setter: setPatientAge, type: 'number' },
+    { id: 'previousBirths', label: 'Previous Births', value: previousBirths, setter: setPreviousBirths, type: 'number' }
+  ];
 
-  function showToast(msg) {
-    setMicToast(msg);
-    setTimeout(() => setMicToast(null), 3500);
+  const filledFields = fields.filter(f => f.value !== '').length;
+  const progress = (filledFields / fields.length) * 100;
+
+  function getStatusColor(field, value) {
+    if (!value) return 'rgba(255,255,255,0.1)';
+    const num = Number(value);
+    if (field === 'hemoglobin') {
+      if (num < 7) return '#C62828';
+      if (num < 11) return '#F59E0B';
+      return '#10B981';
+    }
+    if (field === 'systolicBP') {
+      if (num >= 140) return '#C62828';
+      if (num >= 130) return '#F59E0B';
+      return '#10B981';
+    }
+    return '#10B981';
   }
 
-  // ── Speech recognition ──
-  const buildRecognition = useCallback((lang) => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch (_) {}
-    }
-    const rec = new SR();
-    rec.lang = lang;
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      console.log('Result received:', transcript);
-      const field = activeFieldRef.current;
-      if (field && fieldSetters[field]) fieldSetters[field](transcript);
-      setListeningField(null);
-      activeFieldRef.current = null;
-    };
-    rec.onerror = (event) => {
-      console.log('Error:', event.error);
-      setListeningField(null);
-      activeFieldRef.current = null;
-      if (event.error !== 'aborted') showToast(t('micUnavailable'));
-    };
-    rec.onend = () => {
-      setListeningField(null);
-      activeFieldRef.current = null;
-    };
-    recognitionRef.current = rec;
-    return rec;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => { buildRecognition(micLang); }, [micLang, buildRecognition]);
-
-  function startListening(field) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { showToast(t('micUnavailable')); return; }
-    if (listeningField && recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch (_) {}
-      setListeningField(null);
-      activeFieldRef.current = null;
-      setTimeout(() => startListening(field), 150);
-      return;
-    }
-    buildRecognition(micLang);
-    activeFieldRef.current = field;
-    setListeningField(field);
-    try {
-      recognitionRef.current.start();
-      console.log('Mic started for field:', field);
-    } catch (err) {
-      console.log('Error:', err.message);
-      setListeningField(null);
-      activeFieldRef.current = null;
-      showToast(t('micUnavailable'));
-    }
-  }
-
-  // ── Camera helpers ──
+  // Camera logic (Simplified for UI update)
   async function openCamera() {
-    setCameraError(null);
     setCapturedImage(null);
-    setAnaemiaResult(null);
-    setAnaemiaError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       streamRef.current = stream;
       setCameraOpen(true);
-      // attach stream after state update
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 100);
-    } catch (err) {
-      console.error('Camera error:', err);
-      setCameraError(t('cameraError'));
-    }
-  }
-
-  function stopCamera() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((tr) => tr.stop());
-      streamRef.current = null;
-    }
-    setCameraOpen(false);
+      setTimeout(() => { if (videoRef.current) videoRef.current.srcObject = stream; }, 100);
+    } catch (err) { console.error(err); }
   }
 
   function capturePhoto() {
     if (!videoRef.current || !canvasRef.current) return;
-    const video  = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg');
     setCapturedImage(dataUrl);
-    stopCamera();
-    // trigger analysis
-    const base64 = dataUrl.split(',')[1];
-    runAnaemiaAnalysis(base64);
+    streamRef.current.getTracks().forEach(t => t.stop());
+    setCameraOpen(false);
+    runAnaemiaAnalysis(dataUrl.split(',')[1]);
   }
 
   async function runAnaemiaAnalysis(base64) {
     setAnaemiaLoading(true);
-    setAnaemiaError(null);
-    setAnaemiaResult(null);
     try {
       const result = await analyseAnaemia(base64);
       setAnaemiaResult(result);
-      // Auto-fill hemoglobin
-      if (result.hemoglobinEstimate) {
-        setHemoglobin(String(result.hemoglobinEstimate));
-        showToast(t('autoFilled'));
-      }
-    } catch (err) {
-      console.error('Anaemia analysis error:', err);
-      setAnaemiaError('Analysis failed: ' + err.message);
-    } finally {
-      setAnaemiaLoading(false);
-    }
-  }
-
-  // Cleanup camera on unmount
-  useEffect(() => () => stopCamera(), []);
-
-  // ── Threshold helpers ──
-  function getStatus(field, value) {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return 'Normal';
-    if (field === 'hemoglobin') {
-      if (num < thresholds.hemoglobin.warning) return 'Danger';
-      if (num < thresholds.hemoglobin.normal) return 'Warning';
-      return 'Normal';
-    }
-    if (field === 'gestationalWeeks') {
-      if (num < thresholds.gestationalWeeks.preterm) return 'Warning';
-      return 'Normal';
-    }
-    if (field === 'patientAge') {
-      if (num < thresholds.patientAge.youngRisk || num > thresholds.patientAge.oldRisk) return 'Warning';
-      return 'Normal';
-    }
-    if (thresholds[field]?.danger !== undefined && num >= thresholds[field].danger) return 'Danger';
-    if (thresholds[field]?.warning !== undefined && num >= thresholds[field].warning) return 'Warning';
-    return 'Normal';
-  }
-
-  function statusClasses(status) {
-    if (status === 'Danger') return 'border-l-red-600 bg-red-50';
-    if (status === 'Warning') return 'border-l-amber-500 bg-amber-50';
-    return 'border-l-green-600 bg-green-50';
-  }
-
-  function pillClasses(status) {
-    if (status === 'Danger') return 'bg-red-100 text-red-700';
-    if (status === 'Warning') return 'bg-amber-100 text-amber-700';
-    return 'bg-green-100 text-green-700';
-  }
-
-  function anaemiaBadgeClass(level) {
-    if (level === 'SEVERE') return 'bg-red-100 text-red-700 border border-red-300';
-    if (level === 'MILD')   return 'bg-yellow-100 text-yellow-700 border border-yellow-300';
-    return 'bg-green-100 text-green-700 border border-green-300';
-  }
-
-  function handleGetLocation() {
-    if (!navigator.geolocation) { setLocationStatus('Geolocation is not supported'); return; }
-    setLocationStatus(t('locationFetching'));
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { setUserLat(pos.coords.latitude); setUserLng(pos.coords.longitude); setLocationStatus(t('locationSuccess')); },
-      ()    => setLocationStatus(t('locationFailed')),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      if (result.hemoglobinEstimate) setHemoglobin(String(result.hemoglobinEstimate));
+    } catch (err) { console.error(err); }
+    finally { setAnaemiaLoading(false); }
   }
 
   function handleSubmit(e) {
     e.preventDefault();
     setSubmitting(true);
-    const vitals = {
-      systolicBP: Number(systolicBP), diastolicBP: Number(diastolicBP),
-      hemoglobin: Number(hemoglobin), gestationalWeeks: Number(gestationalWeeks),
-      patientAge: Number(patientAge), previousBirths: Number(previousBirths),
-      previousComplications, bodyTemp: Number(bodyTemp),
-    };
-    const patient = {
-      name: patientName.trim(), familyPhone: familyPhone.trim(),
-      patientAge: Number(patientAge), userLat, userLng, ...vitals,
-    };
-    setTimeout(() => navigate('/results', { state: { vitals, patient } }), 400);
+    const vitals = { systolicBP, diastolicBP, hemoglobin, gestationalWeeks, patientAge, previousBirths, previousComplications, bodyTemp };
+    const patient = { name: patientName, familyPhone, patientAge, userLat, userLng, ...vitals };
+    setTimeout(() => navigate('/results', { state: { vitals, patient } }), 1000);
   }
 
-  // ── Voice Button ──
-  const VoiceButton = ({ field }) => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    const isActive = listeningField === field;
-    return (
-      <button
-        type="button"
-        onClick={() => startListening(field)}
-        title={isActive ? t('listening') : 'Click to use voice input'}
-        className={`ml-2 w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center transition-all ${
-          isActive
-            ? 'bg-red-600 text-white shadow-lg ring-4 ring-red-300 animate-pulse'
-            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-        }`}
-      >🎤</button>
-    );
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
-      {/* Toast */}
-      {micToast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-red-700 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium animate-bounce">
-          🎙️ {micToast}
-        </div>
-      )}
+    <div className="min-h-screen bg-[#1f1f1f] text-[#f6f7ed] pb-20 px-6" style={{ paddingTop: '64px' }}>
+      {/* Progress Bar */}
+      <div className="fixed top-0 left-0 w-full h-1 bg-white/5 z-[2000]">
+        <div 
+          className="h-full bg-[#C62828] transition-all duration-500 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
 
-      <div className="w-full max-w-[700px] space-y-4">
+      <div className="max-w-4xl mx-auto">
+        <header className="mb-12 animate-fadeUp">
+          <p className="text-[#C62828] text-[10px] tracking-[0.3em] font-black uppercase mb-4">NEW ASSESSMENT</p>
+          <h1 className="text-6xl font-serif">Patient Vitals</h1>
+        </header>
 
-        {/* ── ANAEMIA SCANNER SECTION ── */}
-        <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.08)] p-6">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-2xl">👁️</span>
-            <h2 className="text-base font-bold text-[#1A237E]">{t('anaemiaTitle')}</h2>
-          </div>
-          <p className="text-xs text-slate-500 mb-4">{t('anaemiaDesc')}</p>
-
-          {/* Camera controls */}
-          {!cameraOpen && !capturedImage && (
-            <button
-              type="button"
-              onClick={openCamera}
-              className="px-5 py-2.5 bg-[#1A237E] hover:bg-indigo-900 text-white text-sm font-semibold rounded-xl transition flex items-center gap-2"
-            >
-              {t('scanBtn')}
-            </button>
-          )}
-
-          {cameraError && (
-            <p className="text-xs text-red-600 font-medium mt-2">⚠️ {cameraError}</p>
-          )}
-
-          {/* Live preview */}
-          {cameraOpen && (
-            <div className="mt-3 space-y-3">
-              <div className="relative rounded-xl overflow-hidden bg-black w-full" style={{ maxHeight: 240 }}>
-                <video ref={videoRef} autoPlay playsInline muted className="w-full object-cover" style={{ maxHeight: 240 }} />
-                {/* Overlay guide */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="border-2 border-dashed border-white/60 rounded-full w-32 h-20 opacity-70" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          {/* Sidebar - Anaemia Scan */}
+          <div className="lg:col-span-1 border-r border-white/5 pr-8">
+            <h3 className="text-[10px] tracking-[0.2em] font-bold text-white/40 uppercase mb-6">Anaemia Scanner</h3>
+            <div className="glass-card p-6 border-white/10 group cursor-pointer hover:border-[#C62828]/30 transition-all overflow-hidden" onClick={openCamera}>
+              {cameraOpen ? (
+                <div className="relative aspect-square bg-black rounded-lg overflow-hidden">
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                  <button onClick={(e) => { e.stopPropagation(); capturePhoto(); }} className="absolute bottom-4 left-1/2 -translate-x-1/2 w-12 h-12 bg-red-600 rounded-full border-4 border-white/20" />
                 </div>
-              </div>
-              <p className="text-xs text-slate-500 text-center">Pull down lower eyelid and hold inside eye to camera</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={capturePhoto}
-                  className="flex-1 py-2.5 bg-[#C62828] hover:bg-red-700 text-white font-semibold rounded-xl text-sm transition"
-                >
-                  {t('captureBtn')}
-                </button>
-                <button
-                  type="button"
-                  onClick={stopCamera}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-sm transition"
-                >
-                  {t('stopCamera')}
-                </button>
-              </div>
+              ) : capturedImage ? (
+                <div className="relative aspect-square rounded-lg overflow-hidden">
+                  <img src={capturedImage} className="w-full h-full object-cover" />
+                  {anaemiaLoading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>}
+                </div>
+              ) : (
+                <div className="aspect-square flex flex-col items-center justify-center gap-4 text-white/20 group-hover:text-[#C62828] transition-colors">
+                  <span className="text-4xl">👁️</span>
+                  <p className="text-[10px] font-bold tracking-widest text-center">CLICK TO SCAN EYELID</p>
+                </div>
+              )}
             </div>
-          )}
-
-          {/* Hidden canvas for capture */}
-          <canvas ref={canvasRef} className="hidden" />
-
-          {/* Captured image preview */}
-          {capturedImage && !cameraOpen && (
-            <div className="mt-3 flex gap-4 items-start">
-              <img
-                src={capturedImage}
-                alt="Captured eyelid"
-                className="w-24 h-16 object-cover rounded-lg border border-slate-200"
-              />
-              <div className="flex-1">
-                {anaemiaLoading && (
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <span className="w-4 h-4 border-2 border-indigo-300 border-t-[#1A237E] rounded-full animate-spin" />
-                    {t('scanningAnaemia')}
-                  </div>
-                )}
-                {anaemiaError && (
-                  <p className="text-xs text-red-600 font-medium">⚠️ {anaemiaError}</p>
-                )}
-                {anaemiaResult && !anaemiaLoading && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-slate-600">{t('anaemiaResult')}:</span>
-                      <span className={`text-xs font-bold px-3 py-1 rounded-full ${anaemiaBadgeClass(anaemiaResult.anaemiaLevel)}`}>
-                        {anaemiaResult.anaemiaLevel}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        Hgb ~{anaemiaResult.hemoglobinEstimate} g/dL
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {t('confidence')}: {anaemiaResult.confidence}%
-                      </span>
-                    </div>
-                    {anaemiaResult.recommendation && (
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        💡 {anaemiaResult.recommendation}
-                      </p>
-                    )}
-                  </div>
-                )}
+            {anaemiaResult && (
+              <div className="mt-4 animate-fadeIn">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] font-bold text-white/40">RESULT</span>
+                  <span className="text-[10px] font-bold text-[#C62828]">{anaemiaResult.anaemiaLevel}</span>
+                </div>
+                <p className="text-[11px] text-white/60 leading-relaxed italic">"{anaemiaResult.recommendation}"</p>
               </div>
-            </div>
-          )}
-
-          {/* Retake button */}
-          {capturedImage && !cameraOpen && (
-            <button
-              type="button"
-              onClick={() => { setCapturedImage(null); setAnaemiaResult(null); setAnaemiaError(null); openCamera(); }}
-              className="mt-3 text-xs text-[#1A237E] underline hover:no-underline"
-            >
-              Retake photo
-            </button>
-          )}
-        </div>
-
-        {/* ── MAIN FORM CARD ── */}
-        <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.08)] p-10">
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-4xl">🩺</span>
-            <h1 className="text-[28px] font-bold text-[#1A237E]">{t('intakeTitle')}</h1>
-          </div>
-          <p className="text-sm text-slate-600 mb-4">{t('intakeSubtitle')}</p>
-
-          {/* Voice Language Toggle */}
-          <div className="flex items-center gap-2 mb-5">
-            <span className="text-sm text-slate-600 font-medium">{t('voiceLang')}</span>
-            <button
-              type="button"
-              onClick={() => setMicLang('en-IN')}
-              className={`px-3 py-1 rounded-full text-sm font-semibold transition ${
-                micLang === 'en-IN' ? 'bg-[#1A237E] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >EN</button>
-            <button
-              type="button"
-              onClick={() => setMicLang('hi-IN')}
-              className={`px-3 py-1 rounded-full text-sm font-semibold transition ${
-                micLang === 'hi-IN' ? 'bg-[#1A237E] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >हिं</button>
-            {listeningField && (
-              <span className="ml-2 flex items-center gap-1 text-xs text-red-600 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
-                {t('listening')}
-              </span>
             )}
           </div>
 
-          {/* Location banner */}
-          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-100 p-3 flex items-center justify-between gap-3">
-            <div className="text-sm text-blue-800">{locationStatus}</div>
-            <button
-              type="button"
-              onClick={handleGetLocation}
-              className="px-3 py-1.5 rounded-md bg-[#1A237E] text-white text-sm hover:bg-indigo-900 whitespace-nowrap"
-            >
-              {t('useMyLocation')}
-            </button>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-              {/* Patient Name */}
-              <div>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('patientName')}</label>
-                  <VoiceButton field="patientName" />
+          {/* Main Form */}
+          <form onSubmit={handleSubmit} className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-10 animate-fadeUp" style={{ animationDelay: '0.2s' }}>
+            {fields.map((field) => (
+              <div key={field.id} className="relative">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-[10px] tracking-[0.2em] font-black text-white/40 uppercase">
+                    {field.label}
+                  </label>
+                  <div 
+                    className="w-2 h-2 rounded-full transition-colors duration-500" 
+                    style={{ backgroundColor: getStatusColor(field.id, field.value) }}
+                  />
                 </div>
-                <input type="text" value={patientName} onChange={(e) => setPatientName(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
+                <input
+                  type={field.type}
+                  step={field.step}
+                  value={field.value}
+                  onChange={(e) => field.setter(e.target.value)}
+                  className="w-full bg-[#2a2a2a] border border-white/5 px-4 py-4 text-white text-sm focus:outline-none focus:border-[#C62828] transition-all"
+                  placeholder="---"
+                />
               </div>
+            ))}
 
-              {/* Family Phone */}
-              <div>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('familyPhone')}</label>
-                  <VoiceButton field="familyPhone" />
-                </div>
-                <input type="tel" value={familyPhone} onChange={(e) => setFamilyPhone(e.target.value)}
-                  placeholder="+91XXXXXXXXXX"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-              </div>
-
-              {/* Systolic BP */}
-              <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('systolicBP', systolicBP))}`}>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('systolicBP')}</label>
-                  <VoiceButton field="systolicBP" />
-                </div>
-                <input type="number" value={systolicBP} onChange={(e) => setSystolicBP(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-                <p className="mt-1 text-xs text-gray-500">{t('bpNote')}</p>
-                <span className={`mt-2 inline-block text-xs font-semibold px-2 py-1 rounded-full ${pillClasses(getStatus('systolicBP', systolicBP))}`}>
-                  {getStatus('systolicBP', systolicBP)}
-                </span>
-              </div>
-
-              {/* Diastolic BP */}
-              <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('diastolicBP', diastolicBP))}`}>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('diastolicBPLabel')}</label>
-                  <VoiceButton field="diastolicBP" />
-                </div>
-                <input type="number" value={diastolicBP} onChange={(e) => setDiastolicBP(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-                <p className="mt-1 text-xs text-gray-500">{t('dbpNote')}</p>
-                <span className={`mt-2 inline-block text-xs font-semibold px-2 py-1 rounded-full ${pillClasses(getStatus('diastolicBP', diastolicBP))}`}>
-                  {getStatus('diastolicBP', diastolicBP)}
-                </span>
-              </div>
-
-              {/* Hemoglobin */}
-              <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('hemoglobin', hemoglobin))}`}>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('hemoglobinLabel')}</label>
-                  <VoiceButton field="hemoglobin" />
-                </div>
-                <input type="number" value={hemoglobin} onChange={(e) => setHemoglobin(e.target.value)}
-                  step="0.1"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-                <span className={`mt-2 inline-block text-xs font-semibold px-2 py-1 rounded-full ${pillClasses(getStatus('hemoglobin', hemoglobin))}`}>
-                  {getStatus('hemoglobin', hemoglobin)}
-                </span>
-              </div>
-
-              {/* Gestational Weeks */}
-              <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('gestationalWeeks', gestationalWeeks))}`}>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('gestWeeks')}</label>
-                  <VoiceButton field="gestationalWeeks" />
-                </div>
-                <input type="number" value={gestationalWeeks} onChange={(e) => setGestationalWeeks(e.target.value)}
-                  step="0.1"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-                <span className={`mt-2 inline-block text-xs font-semibold px-2 py-1 rounded-full ${pillClasses(getStatus('gestationalWeeks', gestationalWeeks))}`}>
-                  {getStatus('gestationalWeeks', gestationalWeeks)}
-                </span>
-              </div>
-
-              {/* Patient Age */}
-              <div className={`border-l-4 rounded-md p-2 ${statusClasses(getStatus('patientAge', patientAge))}`}>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('patientAge')}</label>
-                  <VoiceButton field="patientAge" />
-                </div>
-                <input type="number" value={patientAge} onChange={(e) => setPatientAge(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-                <span className={`mt-2 inline-block text-xs font-semibold px-2 py-1 rounded-full ${pillClasses(getStatus('patientAge', patientAge))}`}>
-                  {getStatus('patientAge', patientAge)}
-                </span>
-              </div>
-
-              {/* Previous Births */}
-              <div>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('prevBirths')}</label>
-                  <VoiceButton field="previousBirths" />
-                </div>
-                <input type="number" value={previousBirths} onChange={(e) => setPreviousBirths(e.target.value)}
-                  step="1"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-              </div>
-
-              {/* Previous Complications */}
-              <div className="md:col-span-2">
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('prevComplications')}</label>
-                  <VoiceButton field="previousComplications" />
-                </div>
-                <input type="text" value={previousComplications} onChange={(e) => setPreviousComplications(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-              </div>
-
-              {/* Body Temperature */}
-              <div className={`md:col-span-2 border-l-4 rounded-md p-2 ${statusClasses(getStatus('bodyTemp', bodyTemp))}`}>
-                <div className="flex items-center">
-                  <label className="block text-sm font-medium text-gray-700">{t('bodyTempLabel')}</label>
-                  <VoiceButton field="bodyTemp" />
-                </div>
-                <input type="number" value={bodyTemp} onChange={(e) => setBodyTemp(e.target.value)}
-                  step="0.1"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-3 h-12" />
-                <span className={`mt-2 inline-block text-xs font-semibold px-2 py-1 rounded-full ${pillClasses(getStatus('bodyTemp', bodyTemp))}`}>
-                  {getStatus('bodyTemp', bodyTemp)}
-                </span>
-              </div>
+            <div className="md:col-span-2 relative">
+              <label className="text-[10px] tracking-[0.2em] font-black text-white/40 uppercase block mb-2">Previous Complications</label>
+              <textarea
+                value={previousComplications}
+                onChange={(e) => setPreviousComplications(e.target.value)}
+                className="w-full bg-[#2a2a2a] border border-white/5 px-4 py-4 text-white text-sm focus:outline-none focus:border-[#C62828] transition-all h-32"
+                placeholder="List any history of hypertension, diabetes, etc."
+              />
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full h-14 bg-[#C62828] hover:bg-red-700 text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2 disabled:opacity-70"
+              className="md:col-span-2 h-16 bg-[#8B0000] hover:bg-[#C62828] text-white text-[12px] tracking-[0.4em] font-black uppercase transition-all duration-500 shadow-[0_0_30px_rgba(139,0,0,0.3)] hover:shadow-[0_0_50px_rgba(198,40,40,0.5)] disabled:opacity-50"
             >
-              {submitting ? (
-                <>
-                  <span className="h-4 w-4 border-2 border-white/60 border-t-white rounded-full animate-spin" />
-                  {t('analyzing')}
-                </>
-              ) : t('submitBtn')}
+              {submitting ? 'Analyzing vitals...' : 'Generate Risk Assessment'}
             </button>
           </form>
         </div>
       </div>
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

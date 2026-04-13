@@ -1,5 +1,4 @@
-// Updated: Phase 2 complete
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import Navbar from './components/Navbar'
 import { useLanguage } from './hooks/useLanguage'
@@ -15,10 +14,10 @@ const Timeline      = lazy(() => import('./pages/Timeline'))
 const NotFound      = lazy(() => import('./pages/NotFound'))
 
 const PageLoader = () => (
-  <div className="flex items-center justify-center h-screen bg-[#F8FAFC]">
+  <div className="flex items-center justify-center h-screen bg-[#0f0f0f]">
     <div className="flex flex-col items-center gap-4">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-700" />
-      <p className="text-slate-500 text-sm font-medium">Loading…</p>
+      <div className="w-12 h-12 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+      <p className="text-[#f6f7ed] text-xs tracking-widest uppercase font-medium">Loading...</p>
     </div>
   </div>
 )
@@ -26,6 +25,7 @@ const PageLoader = () => (
 function AppContent() {
   const { language, setLanguage, t } = useLanguage()
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const location = useLocation()
 
   useEffect(() => {
     const goOnline = () => {
@@ -50,19 +50,18 @@ function AppContent() {
 
   return (
     <>
-      <Navbar language={language} setLanguage={setLanguage} t={t} />
+      <Navbar />
 
       {/* Offline Banner */}
       {!isOnline && (
-        <div className="bg-orange-500 text-white text-sm font-semibold text-center py-2 px-4 flex items-center justify-center gap-2 z-40">
-          <span>⚠️</span>
-          <span>Offline Mode — Using WHO threshold calculations</span>
+        <div className="fixed top-[64px] left-0 w-full bg-red-700 text-white text-[10px] tracking-widest uppercase font-bold text-center py-1 z-40">
+          Offline Mode — Local Calculations Active
         </div>
       )}
 
       <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/"           element={<Home t={t} />} />
+        <Routes location={location} key={location.pathname}>
+          <Route path="/"           element={<Home />} />
           <Route path="/intake"     element={<Intake t={t} language={language} />} />
           <Route path="/results"    element={<Results t={t} />} />
           <Route path="/postpartum" element={<Postpartum />} />

@@ -110,7 +110,7 @@ export default function Postpartum() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-6">
+    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-6" style={{ paddingTop: '64px' }}>
       {/* Emergency Overlay */}
       {emergency && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
