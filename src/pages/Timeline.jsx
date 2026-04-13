@@ -1,29 +1,38 @@
 import React, { useState, useEffect } from 'react'
 import { useLocation, Link } from 'react-router-dom'
 import { useLanguage } from '../hooks/useLanguage'
+import { callAI } from '../hooks/useAI'
 
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_KEY
+function cleanAndParseJSON(raw) {
+  try {
+    // Remove markdown code blocks
+    let cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
+    
+    // Find first { and last } to extract just the JSON object
+    const firstBrace = cleaned.indexOf('{')
+    const lastBrace = cleaned.lastIndexOf('}')
+    
+    if (firstBrace === -1 || lastBrace === -1) {
+      throw new Error('No JSON object found in response')
+    }
+    
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+    
+    return JSON.parse(cleaned)
+  } catch (e) {
+    console.error('JSON parse failed:', e)
+    console.error('Raw response was:', raw)
+    throw e
+  }
+}
 
 async function fetchWeekGuidance(weeks) {
-  if (!GEMINI_KEY) throw new Error('Missing VITE_GEMINI_KEY')
   const prompt = `Patient is ${weeks} weeks pregnant. Provide week-specific maternal health guidance for an ASHA worker in India. Return ONLY valid JSON (no markdown, no code blocks):
-{"trimester":"First/Second/Third","babySize":"brief description of baby size/development this week","keyDangerSigns":["sign1","sign2","sign3"],"recommendedChecks":["check1","check2","check3"],"nextVisitWeeks":number,"specialNotes":"1-2 sentences of specific advice for this week"}`
+{"trimester":"First/Second/Third","babySize":"brief description of baby size/development this week","keyDangerSigns":["sign1","sign2","sign3"],"recommendedChecks":["check1","check2","check3"],"nextVisitWeeks":number,"specialNotes":"1-2 sentences of specific advice for this week"}
+IMPORTANT: Respond with ONLY the raw JSON object. No markdown. No code blocks. No backticks. No explanation. Start your response with { and end with }`
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    }
-  )
-  const data = await res.json()
-  let raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-  raw = raw.replace(/```json/g, '').replace(/```/g, '').trim()
-  const first = raw.indexOf('{')
-  const last = raw.lastIndexOf('}')
-  if (first === -1 || last === -1) throw new Error('No JSON in response')
-  return JSON.parse(raw.substring(first, last + 1))
+  let raw = await callAI("You are a helpful maternal health assistant.", prompt)
+  return cleanAndParseJSON(raw)
 }
 
 function getTrimesterInfo(week) {

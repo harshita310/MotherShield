@@ -2,6 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { callAI } from '../hooks/useAI';
 
+function cleanAndParseJSON(raw) {
+  try {
+    // Remove markdown code blocks
+    let cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
+    
+    // Find first { and last } to extract just the JSON object
+    const firstBrace = cleaned.indexOf('{')
+    const lastBrace = cleaned.lastIndexOf('}')
+    
+    if (firstBrace === -1 || lastBrace === -1) {
+      throw new Error('No JSON object found in response')
+    }
+    
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+    
+    return JSON.parse(cleaned)
+  } catch (e) {
+    console.error('JSON parse failed:', e)
+    console.error('Raw response was:', raw)
+    throw e
+  }
+}
+
 export default function Postpartum() {
   
   const [checkIns, setCheckIns] = useState({
@@ -52,13 +75,13 @@ export default function Postpartum() {
     setLoading(true);
 
     const systemPrompt =
-      'You are a maternal health specialist. Assess postpartum risk based on provided vitals. Return ONLY valid JSON: {"riskLevel":"HIGH"|"MEDIUM"|"LOW","findings":"string","immediateActions":["action1","action2"],"isEmergency":boolean}';
+      'You are a maternal health specialist. Assess postpartum risk based on provided vitals. Return ONLY valid JSON: {"riskLevel":"HIGH"|"MEDIUM"|"LOW","findings":"string","immediateActions":["action1","action2"],"isEmergency":boolean}\nIMPORTANT: Respond with ONLY the raw JSON object. No markdown. No code blocks. No backticks. No explanation. Start your response with { and end with }';
 
     const userMessage = `Check-in data: Bleeding: ${formData.bleeding}, Temperature: ${formData.temperature}°C, Uterus: ${formData.uterusFirmness}, Discharge: ${formData.dischargeSmell}, Consciousness: ${formData.consciousnessLevel}, Pain: ${formData.painLevel}/10`;
 
     try {
       const response = await callAI(systemPrompt, userMessage);
-      const result = JSON.parse(response);
+      const result = cleanAndParseJSON(response);
       setAiResult(result);
 
       // Save to localStorage

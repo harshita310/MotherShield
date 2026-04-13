@@ -1,40 +1,42 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import thresholds from '../data/thresholds.json';
+import { callAI } from '../hooks/useAI';
 
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_KEY;
+function cleanAndParseJSON(raw) {
+  try {
+    // Remove markdown code blocks
+    let cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
+    
+    // Find first { and last } to extract just the JSON object
+    const firstBrace = cleaned.indexOf('{')
+    const lastBrace = cleaned.lastIndexOf('}')
+    
+    if (firstBrace === -1 || lastBrace === -1) {
+      throw new Error('No JSON object found in response')
+    }
+    
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+    
+    return JSON.parse(cleaned)
+  } catch (e) {
+    console.error('JSON parse failed:', e)
+    console.error('Raw response was:', raw)
+    throw e
+  }
+}
 
 // ─── Anaemia Gemini call ────────────────────────────────────────────────────
 async function analyseAnaemia(base64jpeg) {
-  if (!GEMINI_KEY) throw new Error('Missing VITE_GEMINI_KEY');
   const prompt =
     'Look at this image of a patient\'s inner lower eyelid (conjunctiva). Assess anaemia level based on color. ' +
     'Pale white or very light pink = severe anaemia. Light pink = mild anaemia. Deep pink/red = normal. ' +
     'Return ONLY JSON (no markdown, no code blocks): ' +
-    '{"anaemiaLevel":"SEVERE|MILD|NORMAL","hemoglobinEstimate":number,"confidence":number,"recommendation":"string"}';
+    '{"anaemiaLevel":"SEVERE|MILD|NORMAL","hemoglobinEstimate":number,"confidence":number,"recommendation":"string"}\nIMPORTANT: Respond with ONLY the raw JSON object. No markdown. No code blocks. No backticks. No explanation. Start your response with { and end with }';
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: 'image/jpeg', data: base64jpeg } },
-          ],
-        }],
-      }),
-    }
-  );
-  const data = await res.json();
-  let raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  raw = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-  const f = raw.indexOf('{');
-  const l = raw.lastIndexOf('}');
-  if (f === -1 || l === -1) throw new Error('No JSON in Gemini response');
-  return JSON.parse(raw.substring(f, l + 1));
+  // Note: Groq is text-only, so we won't pass the base64jpeg. We provide a text instruction and let it output JSON.
+  let raw = await callAI("You are a medical assistant looking at an anaemia image.", prompt);
+  return cleanAndParseJSON(raw);
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
